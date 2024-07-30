@@ -1,0 +1,87 @@
+import requests
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+class NFTFlow:
+    def __init__(self, api_key: str):
+        self.api_url = 'https://api.opensea.io/api/v1'
+        self.headers = {'X-API-KEY': api_key}
+
+    def get_collection_stats(self, collection_slug: str) -> dict:
+        """Fetches statistics for a specific NFT collection."""
+        url = f"{self.api_url}/collection/{collection_slug}/stats"
+        response = requests.get(url, headers=self.headers)
+        return response.json().get('stats', {})
+
+    def get_asset_data(self, asset_contract_address: str, token_id: str) -> dict:
+        """Fetches data for a specific NFT asset."""
+        url = f"{self.api_url}/asset/{asset_contract_address}/{token_id}"
+        response = requests.get(url, headers=self.headers)
+        return response.json()
+
+    def get_collection_sales_history(self, collection_slug: str, days: int) -> pd.DataFrame:
+        """Fetches historical sales data for a specific NFT collection."""
+        url = f"{self.api_url}/events"
+        end_time = datetime.now()
+        start_time = end_time - pd.Timedelta(days=days)
+        params = {
+            'collection_slug': collection_slug,
+            'event_type': 'successful',
+            'occurred_after': int(start_time.timestamp()),
+            'occurred_before': int(end_time.timestamp()),
+            'only_opensea': 'false'
+        }
+        response = requests.get(url, headers=self.headers, params=params)
+        events = response.json().get('asset_events', [])
+        sales_data = []
+        for event in events:
+            sales_data.append({
+                'timestamp': event['transaction']['timestamp'],
+                'total_price': float(event['total_price']) / (10 ** 18),
+                'payment_token': event['payment_token']['symbol']
+            })
+        df = pd.DataFrame(sales_data)
+        if not df.empty:
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            df.set_index('timestamp', inplace=True)
+        return df
+
+    def analyze_collection_metrics(self, collection_slug: str) -> dict:
+        """Analyzes key metrics like floor price, average price, and total volume for a specific NFT collection."""
+        stats = self.get_collection_stats(collection_slug)
+        return {
+            'collection_slug': collection_slug,
+            'floor_price': stats.get('floor_price', 0),
+            'average_price': stats.get('average_price', 0),
+            'total_volume': stats.get('total_volume', 0)
+        }
+
+    def plot_sales_history(self, collection_slug: str, days: int):
+        """Plots historical sales trends for a specific NFT collection."""
+        df = self.get_collection_sales_history(collection_slug, days)
+        if df.empty:
+            print("No sales data found.")
+            return
+
+        plt.figure(figsize=(12, 6))
+        df['total_price'].plot()
+        plt.title(f'{collection_slug.capitalize()} Sales Trend')
+        plt.xlabel('Date')
+        plt.ylabel('Total Price (ETH)')
+        plt.grid(True)
+        plt.show()
+
+# Example Usage
+if __name__ == "__main__":
+    api_key = 'YOUR_OPENSEA_API_KEY'  # Replace with your OpenSea API key
+    nft_flow = NFTFlow(api_key)
+
+    # Fetch and Display Collection Metrics
+    collection_slug = 'cryptopunks'  # Replace with the collection slug you want to analyze
+    collection_metrics = nft_flow.analyze_collection_metrics(collection_slug)
+    print(f"Metrics for collection {collection_slug.capitalize()}:")
+    print(collection_metrics)
+
+    # Plot Historical Sales Trends
+    nft_flow.plot_sales_history(collection_slug=collection_slug, days=30)  # Last 30 days
